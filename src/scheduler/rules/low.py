@@ -75,9 +75,12 @@ def fairness_gap_rule(model, state: ScheduleState):
 
         state.gap_pct = gap_pct     # Only store gap_pct if we have valid percentages, else remain None
 
+        diff = model.NewIntVar(-100, 100, f"diff_{n}")
+        model.Add(diff == gap_pct - FAIRNESS_GAP_THRESHOLD)
+
         # Start penalise fairness when gap_pct >= 60 based on distance from 60
         over_gap  = model.NewIntVar(0, 100, "over_gap")
-        model.AddMaxEquality(over_gap, [gap_pct - FAIRNESS_GAP_THRESHOLD, 0])
+        model.AddMaxEquality(over_gap, [diff, model.NewConstant(0)])
         state.low_priority_penalty.append(over_gap * FAIRNESS_GAP_PENALTY)
 
 
@@ -117,7 +120,10 @@ def shift_balance_rule(model, state: ScheduleState):
             distribution_gap = model.NewIntVar(0, state.num_days, f"gap_{n}")
             model.Add(distribution_gap == maxC - minC)
 
+            diff = model.NewIntVar(-state.num_days, state.num_days, f"diff_{n}")
+            model.Add(diff == distribution_gap - SHIFT_IMBALANCE_THRESHOLD)
+
             # soft penalise when distribution_gap >= 2 based on distance from 2
             over_gap = model.NewIntVar(0, state.num_days, f"over_gap_{n}")
-            model.AddMaxEquality(over_gap, [distribution_gap - SHIFT_IMBALANCE_THRESHOLD, 0])
+            model.AddMaxEquality(over_gap, [diff, model.NewConstant(0)])
             state.low_priority_penalty.append(over_gap * SHIFT_IMBALANCE_PENALTY)
