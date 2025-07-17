@@ -64,8 +64,8 @@ class FixedAssignment(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     nurse: str
-    day_index: int
-    shift: str
+    date: date
+    fixed: str
 
 class ScheduleRequest(BaseModel):
     model_config = ConfigDict(extra="allow")
@@ -176,7 +176,10 @@ async def generate_schedule(
         - `back_to_back_shift`: Whether to prevent back-to-back shifts
         - `use_sliding_window`: Whether to use a sliding window for shift assignments
         - `shift_balance`: Whether to balance the number of shifts between nurses
-        - `fixed_assignments`: List of fixed shift assignments (optional)
+        - `fixed_assignments`: List of fixed shift assignments (optional), with the following fields:
+            - `nurse`: Name of the nurse
+            - `date`: Date of the shift
+            - `fixed`: Fixed declaration (e.g. "EL", "MC")
         
     The API endpoint returns a JSON object with the following keys:
     
@@ -260,8 +263,17 @@ async def generate_schedule(
         # Handle fixed assignments
         fixed_assignments_dict = None
         if request.fixed_assignments:
-            fixed_assignments_dict = {(fa.nurse, fa.day_index): fa.shift 
-                                     for fa in request.fixed_assignments}
+            # build a dict keyed by (nurse, date)
+            fixed_assignments_dict = {(fa.nurse, fa.date): fa.fixed 
+                                    for fa in request.fixed_assignments}
+            # now convert dates to day‐indices
+            fixed_idx_dict = {}
+            for (nurse, dt), shift in fixed_assignments_dict.items():
+                idx = (pd.Timestamp(dt) - pd.Timestamp(request.start_date)).days
+                if idx < 0 or idx >= request.num_days:
+                    raise HTTPException(400,
+                        f"Fixed assignment for {nurse} on {dt} is outside the scheduling window")
+                fixed_idx_dict[(nurse, idx)] = shift
             
         # Convert hours→minutes so the CP‑SAT model sees minutes everywhere
         dur_minutes = [h * 60 for h in request.shift_durations]
@@ -325,7 +337,7 @@ async def generate_schedule(
             back_to_back_shift=request.back_to_back_shift,
             use_sliding_window=request.use_sliding_window,
             shift_balance=request.shift_balance,
-            fixed_assignments=fixed_assignments_dict
+            fixed_assignments=fixed_idx_dict if fixed_assignments_dict else None
         )
 
         # Convert DataFrames to JSON-friendly format
