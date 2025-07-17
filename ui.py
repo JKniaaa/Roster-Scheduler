@@ -583,6 +583,37 @@ if st.session_state.sched_df is not None:
                 st.text_area("Traceback", tb, height=200)
                 st.stop()
 
+    if st.session_state.missing_prefs:
+        fixed_assignments_exist = bool(st.session_state.fixed)
+
+        if fixed_assignments_exist:
+            fixed_nurses = {n for (n, _) in st.session_state.fixed.keys()}
+            
+            lines = st.session_state.missing_prefs.strip().splitlines()
+            if len(lines) >= 3 and "•" in lines[1]:
+                nurse_line = lines[1].strip()
+                nurses = [n.strip() for n in nurse_line[1:].split(",")]  # remove • and split
+                
+                # Filter nurses not in fixed
+                nurses_to_warn = [n for n in nurses if n not in fixed_nurses]
+
+                if nurses_to_warn:
+                    msg = [lines[0]]
+                    msg.append(f"     • {', '.join(sorted(nurses_to_warn))}")
+                    msg.append(lines[2])
+                    warning_msg = "\n".join(msg)
+                    st.warning(warning_msg)
+                    logging.info(warning_msg)
+                # else: skip warning (all fixed)
+        else:
+            # First generation, show full warning
+            st.warning(st.session_state.missing_prefs)
+            logging.info(st.session_state.missing_prefs)
+
+    if st.session_state.missing_train_shifts:
+        st.warning(st.session_state.missing_train_shifts)
+        logging.info(st.session_state.missing_train_shifts)
+
     # Show schedule
     st.subheader("📅 Final Schedule")
     st.dataframe(st.session_state.sched_df, use_container_width=True)
@@ -590,13 +621,6 @@ if st.session_state.sched_df is not None:
     # Show summary
     st.subheader("📊 Final Summary Metrics")
     st.dataframe(st.session_state.summary_df, use_container_width=True)
-
-    if st.session_state.missing_prefs:
-        st.warning(st.session_state.missing_prefs)
-        logging.info(st.session_state.missing_prefs)
-    if st.session_state.missing_train_shifts:
-        st.warning(st.session_state.missing_train_shifts)
-        logging.info(st.session_state.missing_train_shifts)
 
     # Show relevent violations, if any
     violations = st.session_state.get("violations", {})
