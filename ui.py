@@ -126,7 +126,7 @@ if profile_input_mode == "Upload File":
     profiles_file = st.sidebar.file_uploader("Upload Nurse Profiles", type=["xlsx"])
     if not profiles_file:
         st.info("Please upload the nurse profiles Excel file.")
-        st.stop()
+        # st.stop()
     try:
         df_profiles = load_nurse_profiles(profiles_file)
     except CUSTOM_ERRORS as e:
@@ -447,6 +447,13 @@ if st.sidebar.button("Generate Schedule", type="primary"):
                 st.error(str(e))
                 st.stop()
             logging.info(st.session_state.missing_prefs)
+
+            for nurse in df_prefs.index:
+                for col in df_prefs.columns:
+                    v = df_prefs.at[nurse, col]
+                    if pd.notna(v) and v != "":
+                        df_prefs.at[nurse, col] = (str(v).strip().upper(), file_prefs_ts)
+
         else:
             df_prefs = pd.DataFrame(index=df_profiles["Name"])
             st.session_state.missing_prefs = None
@@ -456,22 +463,31 @@ if st.sidebar.button("Generate Schedule", type="primary"):
             d = pd.to_datetime(p["Date"])
             pref = p["Preference"].strip().upper()
 
-            # if d not in df_prefs.columns:
-            #     df_prefs[d] = ""
-            df_prefs.at[n, d] = pref
+            if d not in df_prefs.columns:
+                df_prefs[d] = ""
+            df_prefs.at[n, d] = (pref, p["Timestamp"])
 
         # 1) build file‑prefs metadata
         file_ts    = st.session_state["file_prefs_ts"]
         file_prefs = []
         for nurse in df_prefs.index:
             for col in df_prefs.columns:
-                val = df_prefs.at[nurse, col]
-                if pd.notna(val) and val != "":
+                raw = df_prefs.at[nurse, col]
+                if pd.notna(raw) and raw != "":
+                    if isinstance(raw, tuple) and len(raw) == 2:
+                        val, ts = raw
+                    else:
+                        val, ts = raw, file_prefs_ts
+
+                    if ts != file_prefs_ts:
+                        continue
+                        
+                    val = str(val).strip().upper()
                     file_prefs.append({
                         "Nurse":      nurse,
                         "Date":       col,
                         "Preference": val,
-                        "Timestamp":  file_ts,
+                        "Timestamp":  ts,
                         "Source":     "File",
                     })
 
