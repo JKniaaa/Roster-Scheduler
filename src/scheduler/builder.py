@@ -3,15 +3,15 @@ from datetime import date as dt_date
 from typing import Optional, Dict, Tuple
 from config.paths import LOG_PATH
 import logging
-from utils.constants import *       # import all constants
-from utils.validate import *
-from utils.shift_utils import *
-from exceptions.custom_errors import *
-from scheduler.setup import setup_model
-from core.state import ScheduleState
-from core.constraint_manager import ConstraintManager
-from scheduler.rules import *
-from scheduler.runner import solve_schedule
+from src.utils.constants import *       # import all constants
+from src.utils.validate import *
+from src.utils.shift_utils import *
+from src.exceptions.custom_errors import *
+from src.scheduler.setup import setup_model
+from src.core.state import ScheduleState
+from src.core.constraint_manager import ConstraintManager
+from src.scheduler.rules import *
+from src.scheduler.runner import solve_schedule
 
 logging.basicConfig(
     filename=LOG_PATH,
@@ -123,14 +123,10 @@ def build_schedule_model(profiles_df: pd.DataFrame,
     # Low priority rules
     # cm.add_rule(preference_rule)
     cm.add_rule(preference_rule_ts)
-    # cm.add_rule(fairness_gap_rule)
+    cm.add_rule(fairness_gap_rule)
     cm.add_rule(shift_balance_rule)
 
     cm.apply_all()  # Apply all rules
 
     schedule_df, summary_df, violations, metrics = solve_schedule(model, state, og_nurse_names)
-
-    # logging.warning("Expected penalties:")
-    # for var in state.low_priority_penalty:
-    #     logging.warning(var)
     return schedule_df, summary_df, violations, metrics

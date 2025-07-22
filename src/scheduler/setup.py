@@ -1,7 +1,7 @@
 import pandas as pd
 from ortools.sat.python import cp_model
-from utils.nurse_utils import get_senior_set, get_nurse_names, shuffle_order
-from utils.shift_utils import (
+from src.utils.nurse_utils import get_senior_set, get_nurse_names, shuffle_order
+from src.utils.shift_utils import (
     make_shift_index, 
     extract_prefs_info, 
     extract_leave_days, 
@@ -10,7 +10,7 @@ from utils.shift_utils import (
     get_days_with_el,
     extract_training_shifts_info
 )
-from core.assumption_flags import define_hard_rules
+from src.core.assumption_flags import define_hard_rules
 
 def normalise_date(input_date):
     """ Convert input date to a standard date format. """

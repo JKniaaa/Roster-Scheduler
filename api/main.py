@@ -4,9 +4,10 @@ import pandas as pd
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, model_validator, Field, ConfigDict
 import datetime as dt
-from scheduler.builder import build_schedule_model, validate_data, InputMismatchError
-from utils.constants import *
-from exceptions.custom_errors import *
+from src.scheduler.builder import build_schedule_model
+from src.utils.validate import validate_data
+from src.utils.constants import *
+from src.exceptions.custom_errors import *
 import traceback
 import logging
 
@@ -205,28 +206,36 @@ async def generate_schedule(
 
         # Handle preferences
         if preferences:
-            pref_dicts = [p.model_dump() for p in preferences]
-            pref_df = pd.DataFrame(pref_dicts)
+            # 1) build raw DataFrame
+            pref_df = pd.DataFrame([p.model_dump() for p in preferences])
+
             if 'timestamp' in pref_df.columns:
-                pref_df.sort_values(by='timestamp', ascending=False, inplace=True)
+                # 2) coerce to datetime & sort so earliest come first
+                pref_df['timestamp'] = pd.to_datetime(pref_df['timestamp'])
+                pref_df.sort_values(
+                    by=['date','shift','timestamp'],
+                    ascending=[True, True, True],
+                    inplace=True
+                )
+
+            # 3) pack shift+ts into one column
+            pref_df['cell'] = list(zip(pref_df['shift'], pref_df['timestamp']))
+
+            # 4) drop any duplicate nurse+date, keeping that earliest row, then pivot
             prefs_df = (
                 pref_df
-                .drop_duplicates(subset=['nurse', 'date'])
-                .pivot(index='nurse', columns='date', values='shift')
+                .drop_duplicates(subset=['nurse','date'], keep='first')
+                .pivot(index='nurse', columns='date', values='cell')
                 .rename_axis(None, axis=0)
                 .rename_axis(None, axis=1)
             )
+
             # normalize to match profiles_df["Name"]
-            prefs_df.index = (
-                prefs_df
-                .index
-                .astype(str)
-                .str.strip()
-                .str.upper()
-            )
+            prefs_df.index = prefs_df.index.str.strip().str.upper()
             prefs_df.index.name = "Name"
+
         else:
-            prefs_df = pd.DataFrame(index=profiles_df["Name"].str.strip().str.upper())
+            prefs_df = pd.DataFrame(index=profiles_df["Name"].str.upper())
             prefs_df.index.name = "Name"
 
         # Handle training shifts

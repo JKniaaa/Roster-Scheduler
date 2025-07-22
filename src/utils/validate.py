@@ -1,6 +1,6 @@
 import pandas as pd
 from .nurse_utils import get_senior_set
-from exceptions.custom_errors import InputMismatchError
+from src.exceptions.custom_errors import InputMismatchError
 
 def validate_data(
         df1: pd.DataFrame, 

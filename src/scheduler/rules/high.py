@@ -1,5 +1,5 @@
-from core.state import ScheduleState
-from utils.constants import *
+from src.core.state import ScheduleState
+from src.utils.constants import *
 import statistics
 """
 This module contains the high priority rules for the nurse scheduling problem.

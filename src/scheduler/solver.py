@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from ortools.sat.python import cp_model
 import logging
 from typing import Any, Dict, Tuple
-from exceptions.custom_errors import NoFeasibleSolutionError
+from src.exceptions.custom_errors import NoFeasibleSolutionError
 
 logger = logging.getLogger(__name__)
 

@@ -1,6 +1,6 @@
-from core.state import ScheduleState
-from utils.constants import *
-from exceptions.custom_errors import InvalidMCError, ConsecutiveMCError
+from src.core.state import ScheduleState
+from src.utils.constants import *
+from src.exceptions.custom_errors import InvalidMCError, ConsecutiveMCError
 """
 This module contains the rules for handling fixed assignments, leave days and training shifts for the nurse scheduling problem.
 """

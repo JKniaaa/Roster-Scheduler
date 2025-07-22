@@ -1,8 +1,8 @@
 import pandas as pd
-from core.state import ScheduleState
+from src.core.state import ScheduleState
 from .solver import SolverResult
 from datetime import timedelta
-from utils.constants import NO_WORK_LABELS, SHIFT_LABELS, DAYS_PER_WEEK
+from src.utils.constants import NO_WORK_LABELS, SHIFT_LABELS, DAYS_PER_WEEK
 import statistics
 from typing import List
 import logging

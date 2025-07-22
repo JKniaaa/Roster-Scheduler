@@ -9,13 +9,13 @@ from st_aggrid import GridOptionsBuilder, AgGrid, GridUpdateMode
 from collections import Counter, defaultdict
 import traceback
 import logging
-from scheduler.builder import build_schedule_model
-from utils.loader import *
-from utils.validate import *
-from utils.constants import *
-from utils.download import download_excel
-from utils.shift_utils import shift_duration_minutes
-from exceptions.custom_errors import *
+from src.scheduler.builder import build_schedule_model
+from src.utils.loader import *
+from src.utils.validate import *
+from src.utils.constants import *
+from src.utils.download import download_excel
+from src.utils.shift_utils import shift_duration_minutes
+from src.exceptions.custom_errors import *
 
 LOG_PATH = os.path.join(os.path.dirname(__file__), "ui_error.log")
 
