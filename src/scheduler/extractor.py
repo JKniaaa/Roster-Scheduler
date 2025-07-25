@@ -144,9 +144,9 @@ def extract_schedule_and_summary(state: ScheduleState, result: SolverResult, og_
         schedule[n] = row
         summary_row = {
             "Nurse":            n,
-            "AL":               len(state.al_sets[n]),
-            "MC":               len(state.mc_sets[n]),
-            "EL":               len(state.el_sets[n]),
+            "AL":               sum(1 for d in state.al_sets[n] if 0 <= d < state.num_days),
+            "MC":               sum(1 for d in state.mc_sets[n] if 0 <= d < state.num_days),
+            "EL":               sum(1 for d in state.el_sets[n] if 0 <= d < state.num_days),
             "AM (Training)":    training_counts[0],
             "PM (Training)":    training_counts[1],
             "Night (Training)": training_counts[2],

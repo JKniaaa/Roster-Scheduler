@@ -1,6 +1,8 @@
 from src.core.state import ScheduleState
 from src.utils.constants import *
 from src.exceptions.custom_errors import InvalidMCError, ConsecutiveMCError
+from src.utils.shift_utils import normalise_date
+import pandas as pd
 """
 This module contains the rules for handling fixed assignments, leave days and training shifts for the nurse scheduling problem.
 """
@@ -23,7 +25,7 @@ def handle_fixed_assignments(model, state: ScheduleState):
         label = shift_label.strip().upper()
 
         # Fix MC, REST, AL, EL as no work
-        if label in {"EL", "MC", "AL", "REST"}:
+        if label in NO_WORK_LABELS:
             # Block all shifts
             for s in range(state.shift_types):
                 model.Add(state.work[nurse, day_idx, s] == 0)
@@ -118,3 +120,55 @@ def define_training_shifts(model, state: ScheduleState):
             key = (n, d, s)
             if key in state.work:
                 model.Add(state.work[key] == 0)
+
+
+def previous_schedule_rules(model, state: ScheduleState):
+    """
+    Adds constraints to the model based on the previous schedule (if any).
+    
+    The previous schedule is a pandas DataFrame with nurse names as index and day
+    dates as columns. Each entry in the DataFrame is a string that can be one of
+
+    - a known shift label (AM, PM, Night, ...) to fix exactly that shift
+    - a label in NO_WORK_LABELS (EL, MC, ...) to block all shifts
+    - blank string or NaN to skip
+    - any other string (garbage text) to raise an error (or skip, if desired)
+
+    The constraints are added to the model based on the contents of the previous
+    schedule. The model is not modified if the previous schedule is None or empty.
+    """
+    prev = state.previous_schedule
+    if prev is None or prev.empty:
+        return
+    
+    for col in sorted(prev.columns):
+        # col should be a date
+        col_date = normalise_date(col)
+        day_idx = (col_date - state.start_date).days
+
+        for nurse in prev.index:
+            raw = prev.at[nurse, col]
+            if pd.isna(raw):
+                continue   # no data → skip
+            label = str(raw).strip().upper()
+            if not label:
+                continue   # blank string → skip
+
+            # If it's a known shift label, fix exactly that shift:
+            if label in state.shift_str_to_idx:
+                s_fixed = state.shift_str_to_idx[label]
+                for s in range(state.shift_types):
+                    model.Add(
+                        state.work[nurse, day_idx, s] == (1 if s == s_fixed else 0)
+                    )
+            else:
+                # If it's “EL”, “MC”, etc., block all shifts
+                if label in NO_WORK_LABELS:
+                    for s in range(state.shift_types):
+                        model.Add(state.work[nurse, day_idx, s] == 0)
+                # Otherwise (garbage text), you might warn or skip
+                else:
+                    # Option A: raise an error
+                    raise ValueError(f"Unknown entry in previous schedule '{label}' for {nurse} on {col}")
+                    # Option B: skip
+                    continue
