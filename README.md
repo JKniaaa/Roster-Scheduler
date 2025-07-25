@@ -47,19 +47,7 @@ pip install -r requirements.txt
 
 ---
 
-### 4. Set the Python path for local imports
-
-Create a .env file in the project root (same level as requirements.txt) with the following content:
-
-```bash
-PYTHONPATH=src
-```
-
-This sets the PYTHONPATH environment variable to the src/ directory, allowing Python to resolve internal imports properly.
-
----
-
-### 5. Run the Application
+### 4. Run the Application
 
 #### Option 1: Using Invoke
 
@@ -95,7 +83,7 @@ roster-scheduler/
 ├── .venv/
 ├── .env
 ├── config/            → Constants and path configuration
-├── data/              → Nurse input Excel files
+├── data/              → Examples of input files
 ├── jupyter/           → Development notebooks
 ├── legacy/            → Deprecated modules (e.g., old scheduler logic)
 ├── src/               → Main Python source code
@@ -115,9 +103,10 @@ roster-scheduler/
 
 The project expects the following input files:
 
--   `nurse_profiles.xlsx`: Contains nurse profiles, including `Names`, `Titles`, and `Years of Experience`.
+-   `nurse_profiles.xlsx`: **(Required)** Contains nurse profiles, including `Names`, `Titles`, and `Years of Experience`.
 -   `nurse_preferences.xlsx`: **(Optional)** Contains nurse preferences for each `date`, including shift preferences and leave requirements.
 -   `training_shifts.xlsx`: **(Optional)** Contains training shifts for each nurse for each `date`.
+-   `previous_schedule.xlsx`: **(Optional)** Contains any valid previous schedule, as long as its `end date` is **strictly before** the `start date` of the schedule to be generated.
 
 Templates for each file can be found in the `data/` directory.
 
