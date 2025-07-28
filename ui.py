@@ -353,7 +353,7 @@ sel_date = st.sidebar.date_input(
 
 sel_pref = st.sidebar.selectbox(
     "Select Preference",
-    options=[lbl for lbl in SHIFT_LABELS + NO_WORK_LABELS if lbl not in ["EL", "REST"]],
+    options=[lbl for lbl in SHIFT_LABELS + NO_WORK_LABELS if lbl not in ["EL", "REST", "TR"]],
     index=None,
     key="sel_pref"
 )
@@ -792,6 +792,8 @@ if st.session_state.sched_df is not None:
         st.caption("These are indicators of preferences satisfaction and fairness of the schedule.")
         for category, items in metrics.items():
             match category:
+                case "Preference Met":
+                    st.markdown(f"🔸 **{category}**: {items} preferences met")
                 case "Preference Unmet":
                     total_unmet = sum(s["Prefs_Unmet"] for s in st.session_state.summary_df.to_dict(orient="records"))
                     st.markdown(f"🔸 **{category}**: {total_unmet} unmet preferences across {len(items)} nurse{'s' if len(items)!=1 else ''}")
