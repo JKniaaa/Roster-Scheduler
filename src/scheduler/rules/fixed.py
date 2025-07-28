@@ -24,7 +24,7 @@ def handle_fixed_assignments(model, state: ScheduleState):
     for (nurse, day_idx), shift_label in state.fixed_assignments.items():
         label = shift_label.strip().upper()
 
-        # Fix MC, REST, AL, EL as no work
+        # Fix REST, MC, EL, AL, TR as no work
         if label in NO_WORK_LABELS:
             # Block all shifts
             for s in range(state.shift_types):
@@ -117,9 +117,11 @@ def define_training_shifts(model, state: ScheduleState):
     # Cannot assign same shift to nurse when they are training on that shift
     for n in state.nurse_names:
         for d, s in state.training_by_nurse.get(n, {}).items():
-            key = (n, d, s)
-            if key in state.work:
-                model.Add(state.work[key] == 0)
+            if s == -1:
+                for shift_idx in range(state.shift_types):
+                    model.Add(state.work[n, d, shift_idx] == 0)
+            else:
+                model.Add(state.work[n, d, s] == 0)
 
 
 def previous_schedule_rules(model, state: ScheduleState):

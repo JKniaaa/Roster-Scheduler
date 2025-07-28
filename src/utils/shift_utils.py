@@ -185,7 +185,7 @@ def filter_fixed_assignments_from_prefs(
 ) -> None:
     """
     Remove any (nurse, day) preference from both shift_preferences and prefs_by_nurse
-    if that (nurse, day) is in fixed_assignments with a NO_WORK_LABEL (REST, MC, EL, AL).
+    if that (nurse, day) is in fixed_assignments with a NO_WORK_LABEL (MC, EL).
     """
     if not fixed_assignments:
         return
@@ -193,15 +193,8 @@ def filter_fixed_assignments_from_prefs(
     no_work_label_set: set[str] = set(no_work_labels)     # convert list to set for quick lookup
 
     for nurse, prefs in shift_preferences.items():
-        # build list of days to drop for this nurse
-        # to_drop = [
-        #     day
-        #     for day in prefs
-        #     if fixed_assignments.get((nurse, day), "").upper() in no_work_label_set
-        # ]
-
         to_drop = []
-        for day, (pref_shift, _) in prefs.items():
+        for day, (p, _) in prefs.items():
             if fixed_assignments.get((nurse, day), "").upper() in no_work_label_set:
                 to_drop.append(day)
 
@@ -237,14 +230,10 @@ def filter_prefs_from_training_shifts(
     for nurse in prefs_by_nurse:
         prefs = prefs_by_nurse[nurse]
         training = training_by_nurse.get(nurse, {})
-        # find preference equal to training shift
-        # to_drop = [
-        #     day for day, pref_shift in prefs.items()
-        #     if training.get(day) == pref_shift
-        # ]
         to_drop = []
         for day, (pref_shift, _) in prefs.items():
-            if training.get(day) == pref_shift:
+            tr = training.get(day)
+            if tr == -1 or tr == pref_shift:
                 to_drop.append(day)
 
         # logging.info(f"To drop: {to_drop}")
@@ -279,10 +268,17 @@ def get_training_shifts(
                 code = str(val).strip().upper()
                 if code == "":
                     continue
+
+                offset = compute_label_offset(label, date_start)
+                if not(0 <= offset < active_days):
+                    continue
+            
+                if code == "FULL":
+                    training_shifts[nm][offset] = -1
+
                 elif code in shifts_str_to_idx:
-                    offset = compute_label_offset(label, date_start)
-                    if 0 <= offset < active_days:
-                        training_shifts[nm][offset] = shifts_str_to_idx[code]
+                    training_shifts[nm][offset] = shifts_str_to_idx[code]
+
                 else:
                     raise FileContentError(
                         f"Invalid training shift “{code}” for nurse {nm} on {label} — "
@@ -299,20 +295,20 @@ def filter_fixed_assignments_from_training_shifts(
 ) -> None:
     """
     Remove any (nurse, day) training sessions from both training_shifts and training_by_nurse
-    if that (nurse, day) is in fixed_assignments with a NO_WORK_LABEL (REST, MC, EL, AL).
+    if that (nurse, day) is in fixed_assignments with a NO_WORK_LABEL (MC, EL).
     """
     if not fixed_assignments:
         return
     
-    no_work_label_set: set[str] = set(no_work_labels)     # convert list to set for quick lookup
+    # REST and TR are valid assignments when there is full/partial day training
+    # TR label for full day training
+    no_work_label_set: set[str] = set(no_work_labels) - {"REST", "TR"}    
 
     for nurse, prefs in training_shifts.items():
-        # build list of days to drop for this nurse
-        to_drop = [
-            day
-            for day in prefs
-            if fixed_assignments.get((nurse, day), "").upper() in no_work_label_set
-        ]
+        to_drop: list[int] = []
+        for day, tr in prefs.items():
+            if fixed_assignments.get((nurse, day), "").upper() in no_work_label_set:
+                to_drop.append(day)
 
         for day in to_drop:
             # remove from the master dict
