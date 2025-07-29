@@ -4,18 +4,18 @@ import os
 os.environ['STREAMLIT_SERVER_FILE_WATCHER_TYPE'] = 'none'
 
 import streamlit as st
-from datetime import date, time
+from datetime import date, time, datetime
 from st_aggrid import GridOptionsBuilder, AgGrid, GridUpdateMode
 from collections import Counter, defaultdict
 import traceback
 import logging
-from scheduler.builder import build_schedule_model
-from utils.loader import *
-from utils.validate import *
-from utils.constants import *
-from utils.download import download_excel
-from utils.shift_utils import shift_duration_minutes
-from exceptions.custom_errors import *
+from src.scheduler.builder import build_schedule_model
+from src.utils.loader import *
+from src.utils.validate import *
+from src.utils.constants import *
+from src.utils.download import download_excel
+from src.utils.shift_utils import shift_duration_minutes
+from src.exceptions.custom_errors import *
 
 LOG_PATH = os.path.join(os.path.dirname(__file__), "ui_error.log")
 
@@ -35,6 +35,8 @@ CUSTOM_ERRORS = (
     ConsecutiveMCError,
     ConsecutiveALError,
     InputMismatchError,
+    InvalidPreviousScheduleError,
+    InvalidPrioritySettingError,
     FileReadingError,
     FileContentError
 )
@@ -124,18 +126,35 @@ profile_input_mode = st.sidebar.radio(
 
 if profile_input_mode == "Upload File":
     profiles_file = st.sidebar.file_uploader("Upload Nurse Profiles", type=["xlsx"])
-    num_seniors = num_juniors = None
+    if not profiles_file:
+        st.info("Please upload the nurse profiles Excel file.")
+        # st.stop()
+    try:
+        df_profiles = load_nurse_profiles(profiles_file)
+    except CUSTOM_ERRORS as e:
+        st.error(str(e))
+        st.stop()
+    senior_count = junior_count = 0
 else:
     profiles_file = None
-    num_seniors = st.sidebar.number_input("Number of Senior Nurses", min_value=1)
-    num_juniors = st.sidebar.number_input("Number of Junior Nurses", min_value=1)
+    # Generate DataFrame for seniors and juniors
+    senior_count = int(st.sidebar.number_input("Number of Senior Nurses", min_value=1))
+    junior_count = int(st.sidebar.number_input("Number of Junior Nurses", min_value=1))
+    senior_names = [f"S{str(i).zfill(2)}" for i in range(senior_count)]
+    junior_names = [f"J{str(i).zfill(2)}" for i in range(junior_count)]
+    names = senior_names + junior_names
+    titles = ["Senior"] * senior_count + ["Junior"] * junior_count
+    years_exp = [3] * senior_count + [0] * junior_count  # Example: seniors have ≥3 years, juniors 0
+    df_profiles = pd.DataFrame({
+        "Name": names,
+        "Title": titles,
+        "YearsExperience": years_exp
+    })
 
 prefs_file = st.sidebar.file_uploader(
     "Upload Nurse Preferences (Optional)", 
     type=["xlsx"],
     help=(
-        "• If uploading profiles, ensure nurse names match in both files.\n\n"
-        "• For manual entry, the number of seniors and juniors must match your input above.\n\n"
         "• Preferences file only applies to specified dates in file."
     )
 )
@@ -147,6 +166,15 @@ training_shifts_file = st.sidebar.file_uploader(
         "• If provided, these shifts will be excluded for the nurse for the schedule on stated days.\n\n"
         "• Training Shifts file only appied to specified dates in file."
     )
+)
+
+prev_sched_file = st.sidebar.file_uploader(
+    "Upload Previous Schedule (Optional)",
+    type=["xlsx"],
+    help=(
+         "• Upload a previous schedule to ensure continuity.\n\n"
+         "• Previous Schedule end date must be before current schedule start date."
+     )
 )
 
 start_date = pd.to_datetime(st.sidebar.date_input("Schedule start date", value=date.today(), key="start_date"))
@@ -294,6 +322,94 @@ shift_balance = st.sidebar.checkbox(
     help="If checked, the system will attempt to balance shift assignments among nurses. May cause longer solve times.",
     key="shift_balance"
 )
+if shift_balance:
+    priority_setting = st.sidebar.select_slider(
+        "Priority setting",
+        options=["Fairness", "Fairness-leaning", "50/50", "Preference-leaning", "Preference"],
+        value="50/50",
+        key="priority_setting",
+        help=(
+            "Select priority for solving:\n\n"
+            "• Fairness: Prioritise fairness of shift distributions.\n\n"
+            "• Preference: Prioritise number of preferences met.\n\n")
+    )
+
+    st.sidebar.info(
+        "⚠️ Your selected priority guides the solver, but results may vary depending on inputs and constraints.\n\n"
+        "For example, 'Preference' may not always lead to more preferences met than '50/50'."
+    )
+else:
+    priority_setting = "50/50"
+
+# Validate input parameters
+errors = validate_input_params(df_profiles, num_days, min_nurses_per_shift, min_seniors_per_shift, max_weekly_hours, preferred_weekly_hours, min_acceptable_weekly_hours)
+if errors:
+    st.error("\n".join(errors))
+    st.stop()
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("Add preferences manually")
+
+if "manual_prefs" not in st.session_state:
+    st.session_state.manual_prefs = []
+
+nurses = sorted(df_profiles["Name"].str.strip().str.upper().tolist())
+
+sel_nurse = st.sidebar.selectbox(
+    "Select Nurse for Preferences",
+    options=nurses,
+    index=None,
+    key="sel_nurse"
+)
+
+sel_date = st.sidebar.date_input(
+    "Select Date for Preferences",
+    value=None,
+    min_value=start_date,
+    max_value=end_date,
+    key="sel_date"
+)
+
+sel_pref = st.sidebar.selectbox(
+    "Select Preference",
+    options=[lbl for lbl in SHIFT_LABELS + NO_WORK_LABELS if lbl not in ["EL", "REST", "TR"]],
+    index=None,
+    key="sel_pref"
+)
+
+if st.sidebar.button("Add Preference"):
+    if not sel_nurse or not sel_date or not sel_pref:
+        st.sidebar.error("Please select a nurse, date, and preference.")
+        st.stop()
+
+    duplicates = any(
+        p["Nurse"] == sel_nurse and p["Date"] == pd.to_datetime(sel_date)
+        for p in st.session_state.manual_prefs
+    )
+
+    if duplicates:
+        st.sidebar.warning(f"{sel_nurse} already has a preference for {sel_date}.")
+    else:
+        now = datetime.now()
+        st.session_state.manual_prefs.append({
+            "Nurse": sel_nurse,
+            "Date": pd.to_datetime(sel_date),
+            "Preference": sel_pref,
+            "Timestamp": now,
+            "Source": "Manual"
+        })
+        st.sidebar.success(f"Added preference for {sel_nurse} on {sel_date}: {sel_pref} at {now:%H:%M:%S}.")
+
+if st.session_state.manual_prefs:
+    st.sidebar.markdown("**Current Manual Preferences**")
+    for idx, pref in enumerate(st.session_state.manual_prefs, 1):
+        col1, col2, _ = st.sidebar.columns([7, 1, 1])
+        col1.markdown(f"{idx}. {pref['Nurse']} on {pref['Date'].date()}: {pref['Preference']}")
+        if col2.button(label="❌", key=f"remove_{idx}", help="Remove this preference"):
+            st.session_state.manual_prefs.pop(idx - 1)
+            st.rerun()
+else:
+    st.sidebar.markdown("No manual preferences found.")
 
 # Store core state
 for key, default in {
@@ -303,6 +419,7 @@ for key, default in {
     "df_profiles": None,
     "df_prefs": None,
     "df_train_shifts": None,
+    "df_prev_sched": None,
     "start_date": pd.to_datetime(start_date),
     "num_days": num_days,
     "shift_durations": shift_durations,
@@ -323,11 +440,18 @@ for key, default in {
     "back_to_back_shift": back_to_back_shift,
     "use_sliding_window": use_sliding_window,
     "shift_balance": shift_balance,
+    "priority_setting": priority_setting,
     "all_el_overrides": {},
-    "all_mc_overrides": {}
+    "all_mc_overrides": {},
+    "all_prefs_meta": []    
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
+
+if "missing_prefs" not in st.session_state:
+    st.session_state.missing_prefs = None
+if "missing_train_shifts" not in st.session_state:
+    st.session_state.missing_train_shifts = None
 
 # Generate Schedule
 if st.sidebar.button("Generate Schedule", type="primary"):
@@ -335,59 +459,115 @@ if st.sidebar.button("Generate Schedule", type="primary"):
     st.session_state.num_days = num_days
     st.session_state.all_el_overrides = {}
     st.session_state.all_mc_overrides = {}
+    file_prefs_ts = datetime.now()
+    st.session_state["file_prefs_ts"] = file_prefs_ts
 
     if profile_input_mode == "Upload File" and not profiles_file:
         st.error("Please upload a valid profiles excel file.")
         st.stop()
 
     try:
-        # Load profiles
-        if profile_input_mode == "Upload File":
-            if not profiles_file:
-                st.error("Please upload the nurse profiles Excel file.")
-                st.stop()
-            df_profiles = load_nurse_profiles(profiles_file)
-        else:
-            # Generate DataFrame for seniors and juniors
-            senior_count = int(num_seniors) if num_seniors is not None else 0
-            junior_count = int(num_juniors) if num_juniors is not None else 0
-            senior_names = [f"S{str(i).zfill(2)}" for i in range(senior_count)]
-            junior_names = [f"J{str(i).zfill(2)}" for i in range(junior_count)]
-            names = senior_names + junior_names
-            titles = ["Senior"] * senior_count + ["Junior"] * junior_count
-            years_exp = [3] * senior_count + [0] * junior_count  # Example: seniors have ≥3 years, juniors 0
-            df_profiles = pd.DataFrame({
-                "Name": names,
-                "Title": titles,
-                "YearsExperience": years_exp
-            })
-
         # Load and validate shift preferences and training shifts data
         if prefs_file:    
             df_prefs = load_shift_preferences(prefs_file)
-            validate_data(df_profiles, df_prefs, "profiles", "preferences")
+            try: 
+                st.session_state.missing_prefs = validate_data(df_profiles, df_prefs, "profiles", "preferences", False)
+            except InputMismatchError as e:
+                st.error(str(e))
+                st.stop()
+            logging.info(st.session_state.missing_prefs)
+
+            for nurse in df_prefs.index:
+                for col in df_prefs.columns:
+                    v = df_prefs.at[nurse, col]
+                    if pd.notna(v) and v != "":
+                        df_prefs.at[nurse, col] = (str(v).strip().upper(), file_prefs_ts)
+
         else:
             df_prefs = pd.DataFrame(index=df_profiles["Name"])
+            st.session_state.missing_prefs = None
+
+        for p in st.session_state.get("manual_prefs", []):
+            n = p["Nurse"].strip().upper()
+            d = pd.to_datetime(p["Date"])
+            pref = p["Preference"].strip().upper()
+
+            if d not in df_prefs.columns:
+                df_prefs[d] = ""
+            df_prefs.at[n, d] = (pref, p["Timestamp"])
+
+        # 1) build file‑prefs metadata
+        file_ts    = st.session_state["file_prefs_ts"]
+        file_prefs = []
+        for nurse in df_prefs.index:
+            for col in df_prefs.columns:
+                raw = df_prefs.at[nurse, col]
+                if pd.notna(raw) and raw != "":
+                    if isinstance(raw, tuple) and len(raw) == 2:
+                        val, ts = raw
+                    else:
+                        val, ts = raw, file_prefs_ts
+
+                    if ts != file_prefs_ts:
+                        continue
+                        
+                    val = str(val).strip().upper()
+                    file_prefs.append({
+                        "Nurse":      nurse,
+                        "Date":       col,
+                        "Preference": val,
+                        "Timestamp":  ts,
+                        "Source":     "File",
+                    })
+
+        # all_prefs_meta = st.session_state.get("file_prefs_meta", []) + st.session_state.manual_prefs
+        # st.session_state["all_prefs_meta"] = all_prefs_meta
+
+        # 2) merge with manual prefs and sort by Timestamp
+        manual = st.session_state.get("manual_prefs", [])
+        all_prefs_sorted = sorted(file_prefs + manual, key=lambda r: r["Timestamp"])
+
+        st.sidebar.write("🔀 Preference application order (oldest → newest):")
+        for i, rec in enumerate(all_prefs_sorted, 1):
+            dt = rec["Date"].strftime("%Y-%m-%d")  # <-- added line
+            ts = rec["Timestamp"].strftime("%Y-%m-%d %H:%M:%S")
+            st.sidebar.write(f"{i}. [{rec['Source']}] {rec['Nurse']} on {dt}: "
+                            f"{rec['Preference']} (at {ts})")
+
+        # 3) store the merged+sorted metadata if you still need it elsewhere
+        st.session_state["all_prefs_meta"] = all_prefs_sorted
         
+        # Training Shifts
         if training_shifts_file:
             df_train_shifts = load_training_shifts(training_shifts_file)
-            validate_data(df_profiles, df_train_shifts, "profiles", "training shifts")
+            try:
+                st.session_state.missing_train_shifts = validate_data(df_profiles, df_train_shifts, "profiles", "training shifts", False)
+            except InputMismatchError as e:
+                st.error(str(e))
+                st.stop()
         else:
             df_train_shifts = pd.DataFrame(index=df_profiles["Name"])
+            st.session_state.missing_train_shifts = None
 
-        # Validate input parameters
-        errors = validate_input_params(df_profiles, num_days, min_nurses_per_shift, min_seniors_per_shift, max_weekly_hours, preferred_weekly_hours, min_acceptable_weekly_hours)
-        if errors:
-            st.error("\n".join(errors))
-            st.stop()
+        # Previous schedule
+        if prev_sched_file:
+            df_prev_sched = load_prev_schedule(prev_sched_file)
+            try:
+                validate_data(df_profiles, df_prev_sched, "profiles", "previous schedule", False)
+            except InputMismatchError as e:
+                st.error(str(e))
+                st.stop()
+        else:
+            df_prev_sched = pd.DataFrame(index=df_profiles["Name"])
 
         # Build initial schedule
         st.session_state.df_profiles = df_profiles
         st.session_state.df_prefs = df_prefs
         st.session_state.df_train_shifts = df_train_shifts
+        st.session_state.df_prev_sched = df_prev_sched
 
         sched, summ, violations, metrics = build_schedule_model(
-            df_profiles, df_prefs, df_train_shifts,
+            df_profiles, df_prefs, df_train_shifts, df_prev_sched,
             pd.to_datetime(start_date), 
             num_days,
             shift_durations,
@@ -408,6 +588,7 @@ if st.sidebar.button("Generate Schedule", type="primary"):
             back_to_back_shift=st.session_state.back_to_back_shift,
             use_sliding_window=st.session_state.use_sliding_window,
             shift_balance=st.session_state.shift_balance,
+            priority_setting=st.session_state.priority_setting,
             fixed_assignments=st.session_state.fixed
         )
         st.session_state.sched_df = sched
@@ -528,6 +709,7 @@ if st.session_state.sched_df is not None:
                         st.session_state.df_profiles,
                         st.session_state.df_prefs,
                         st.session_state.df_train_shifts,
+                        st.session_state.df_prev_sched,
                         st.session_state.start_date,
                         st.session_state.num_days,
                         st.session_state.shift_durations,
@@ -548,7 +730,8 @@ if st.session_state.sched_df is not None:
                         st.session_state.back_to_back_shift,
                         st.session_state.use_sliding_window,
                         st.session_state.shift_balance,
-                        fixed_assignments=fixed
+                        st.session_state.priority_setting,
+                        st.session_state.fixed
                     )
                     st.session_state.sched_df   = sched2
                     st.session_state.summary_df = summ2
@@ -567,6 +750,37 @@ if st.session_state.sched_df is not None:
                 st.text_area("Traceback", tb, height=200)
                 st.stop()
 
+    if st.session_state.missing_prefs:
+        fixed_assignments_exist = bool(st.session_state.fixed)
+
+        if fixed_assignments_exist:
+            fixed_nurses = {n for (n, _) in st.session_state.fixed.keys()}
+            
+            lines = st.session_state.missing_prefs.strip().splitlines()
+            if len(lines) >= 3 and "•" in lines[1]:
+                nurse_line = lines[1].strip()
+                nurses = [n.strip() for n in nurse_line[1:].split(",")]  # remove • and split
+                
+                # Filter nurses not in fixed
+                nurses_to_warn = [n for n in nurses if n not in fixed_nurses]
+
+                if nurses_to_warn:
+                    msg = [lines[0]]
+                    msg.append(f"     • {', '.join(sorted(nurses_to_warn))}")
+                    msg.append(lines[2])
+                    warning_msg = "\n".join(msg)
+                    st.warning(warning_msg)
+                    logging.info(warning_msg)
+                # else: skip warning (all fixed)
+        else:
+            # First generation, show full warning
+            st.warning(st.session_state.missing_prefs)
+            logging.info(st.session_state.missing_prefs)
+
+    if st.session_state.missing_train_shifts:
+        st.warning(st.session_state.missing_train_shifts)
+        logging.info(st.session_state.missing_train_shifts)
+
     # Show schedule
     st.subheader("📅 Final Schedule")
     st.dataframe(st.session_state.sched_df, use_container_width=True)
@@ -574,10 +788,6 @@ if st.session_state.sched_df is not None:
     # Show summary
     st.subheader("📊 Final Summary Metrics")
     st.dataframe(st.session_state.summary_df, use_container_width=True)
-    # for row in st.session_state.summary_df.itertuples():
-    #     if row.Unmet_Details:
-    #         with st.expander(f"Unmet Details for {row.Nurse}"):
-    #             st.markdown(row.Unmet_Details)
 
     # Show relevent violations, if any
     violations = st.session_state.get("violations", {})
@@ -604,6 +814,8 @@ if st.session_state.sched_df is not None:
         st.caption("These are indicators of preferences satisfaction and fairness of the schedule.")
         for category, items in metrics.items():
             match category:
+                case "Preference Met":
+                    st.markdown(f"🔸 **{category}**: {items} preferences met")
                 case "Preference Unmet":
                     total_unmet = sum(s["Prefs_Unmet"] for s in st.session_state.summary_df.to_dict(orient="records"))
                     st.markdown(f"🔸 **{category}**: {total_unmet} unmet preferences across {len(items)} nurse{'s' if len(items)!=1 else ''}")

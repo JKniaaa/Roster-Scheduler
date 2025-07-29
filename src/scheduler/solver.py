@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from ortools.sat.python import cp_model
 import logging
 from typing import Any, Dict, Tuple
-from exceptions.custom_errors import NoFeasibleSolutionError
+from src.exceptions.custom_errors import NoFeasibleSolutionError
 
 logger = logging.getLogger(__name__)
 
@@ -86,9 +86,9 @@ def run_phase1(model, state) -> SolverResult:
 
     status = solver.Solve(model)
     total_hards = len(state.hard_rules)
-    logger.info(total_hards)
+    logger.info(f"Total hard constraint flags: {total_hards}")
     satisfied_hards = int(solver.ObjectiveValue())
-    logger.info(satisfied_hards)
+    logger.info(f"Satisfied hard constraint flags: {satisfied_hards}")
     logger.info(f"⏱ Solve time: {solver.WallTime():.2f} seconds")
     if satisfied_hards != total_hards or status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         dropped = [r.message for r in state.hard_rules.values() if solver.Value(r.flag) == 0]

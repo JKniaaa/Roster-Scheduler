@@ -3,15 +3,15 @@ from datetime import date as dt_date
 from typing import Optional, Dict, Tuple
 from config.paths import LOG_PATH
 import logging
-from utils.constants import *       # import all constants
-from utils.validate import *
-from utils.shift_utils import *
-from exceptions.custom_errors import *
-from scheduler.setup import setup_model
-from core.state import ScheduleState
-from core.constraint_manager import ConstraintManager
-from scheduler.rules import *
-from scheduler.runner import solve_schedule
+from src.utils.constants import *       # import all constants
+from src.utils.validate import *
+from src.utils.shift_utils import *
+from src.exceptions.custom_errors import *
+from src.scheduler.setup import setup_model, adjust_low_priority_params
+from src.core.state import ScheduleState
+from src.core.constraint_manager import ConstraintManager
+from src.scheduler.rules import *
+from src.scheduler.runner import solve_schedule
 
 logging.basicConfig(
     filename=LOG_PATH,
@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 def build_schedule_model(profiles_df: pd.DataFrame,
                          preferences_df: pd.DataFrame,
                          training_shifts_df: pd.DataFrame,
+                         prev_schedule_df: pd.DataFrame,
                          start_date: pd.Timestamp | dt_date,
                          num_days: int,
                          shift_durations: List[int] = SHIFT_DURATIONS,
@@ -47,6 +48,7 @@ def build_schedule_model(profiles_df: pd.DataFrame,
                          back_to_back_shift: bool = False,
                          use_sliding_window: bool = False,
                          shift_balance: bool = False,
+                         priority_setting: str = "50/50",
                          fixed_assignments: Optional[Dict[Tuple[str,int], str]] = None
                          ) -> tuple[pd.DataFrame, pd.DataFrame, dict, dict]:
     """
@@ -54,14 +56,21 @@ def build_schedule_model(profiles_df: pd.DataFrame,
     Returns a schedule DataFrame, a summary DataFrame, and a violations dictionary.
     """
     # === Validate inputs ===
-    validate_data(profiles_df, preferences_df)
+    validate_data(profiles_df, preferences_df, "profiles", "preferences", False)
+    validate_data(profiles_df, training_shifts_df, "profiles", "training shifts", False)
+    validate_data(profiles_df, prev_schedule_df, "profiles", "previous schedule", False)
 
     # === Model setup ===
     logger.info("📋 Building model...")
-    model, nurse_names, og_nurse_names, senior_names, shift_str_to_idx, date_start, \
+    model, nurse_names, og_nurse_names, clean_prev_sched, senior_names, shift_str_to_idx, date_start, \
     hard_rules, shift_preferences, prefs_by_nurse, training_shifts, training_by_nurse, fixed_assignments, mc_sets, \
-    al_sets, el_sets, days_with_el, weekend_pairs, shift_types, work = setup_model(
-        profiles_df, preferences_df, training_shifts_df, start_date, num_days, SHIFT_LABELS, NO_WORK_LABELS, fixed_assignments
+    al_sets, el_sets, days_with_el, weekend_pairs, shift_types, work, prev_days, total_days = setup_model(
+        profiles_df, preferences_df, training_shifts_df, prev_schedule_df, start_date, num_days, SHIFT_LABELS, NO_WORK_LABELS, fixed_assignments
+    )
+
+    pref_miss_penalty, fairness_gap_penalty, fairness_gap_threshold, \
+    shift_imbalance_penalty, shift_imbalance_threshold = adjust_low_priority_params(
+        shift_balance, priority_setting
     )
 
     state = ScheduleState(
@@ -69,6 +78,7 @@ def build_schedule_model(profiles_df: pd.DataFrame,
         nurse_names=nurse_names,
         senior_names=senior_names,
         shift_str_to_idx=shift_str_to_idx,
+        previous_schedule=clean_prev_sched,
         fixed_assignments=fixed_assignments,
         mc_sets=mc_sets,
         al_sets=al_sets,
@@ -77,6 +87,7 @@ def build_schedule_model(profiles_df: pd.DataFrame,
         prefs_by_nurse=prefs_by_nurse,
         training_by_nurse=training_by_nurse,
         num_days=num_days,
+        prev_days=prev_days,
         shift_types=shift_types,
         shift_durations=shift_durations,
         start_date=date_start,
@@ -97,6 +108,11 @@ def build_schedule_model(profiles_df: pd.DataFrame,
         back_to_back_shift=back_to_back_shift,
         use_sliding_window=use_sliding_window,
         shift_balance=shift_balance,
+        pref_miss_penalty=pref_miss_penalty,
+        fairness_gap_penalty=fairness_gap_penalty,
+        fairness_gap_threshold=fairness_gap_threshold,
+        shift_imbalance_penalty=shift_imbalance_penalty,
+        shift_imbalance_threshold=shift_imbalance_threshold,
         hard_rules=hard_rules,
         days_with_el=days_with_el,
         total_satisfied={},
@@ -106,6 +122,7 @@ def build_schedule_model(profiles_df: pd.DataFrame,
 
     cm = ConstraintManager(model, state)
     # Fixed rules
+    cm.add_rule(previous_schedule_rules)
     cm.add_rule(handle_fixed_assignments)
     cm.add_rule(leave_rules)
     cm.add_rule(training_shift_rules)
@@ -120,7 +137,8 @@ def build_schedule_model(profiles_df: pd.DataFrame,
     cm.add_rule(am_senior_staffing_lvl_rule)
 
     # Low priority rules
-    cm.add_rule(preference_rule)
+    # cm.add_rule(preference_rule)
+    cm.add_rule(preference_rule_ts)
     cm.add_rule(fairness_gap_rule)
     cm.add_rule(shift_balance_rule)
 

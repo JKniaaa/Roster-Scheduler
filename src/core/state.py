@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from ortools.sat.python import cp_model
 from typing import Any, Dict, List, Set, Tuple, Optional
 from datetime import date
+import pandas as pd
 
 @dataclass
 class ScheduleState:
@@ -23,6 +24,8 @@ class ScheduleState:
     """A dictionary mapping shift strings (e.g. 'AM', 'PM', 'Night') to their
     corresponding integer values.
     """
+    previous_schedule: pd.DataFrame
+    """A pandas DataFrame of the previous schedule."""
     fixed_assignments: Dict[Tuple[str,int], str]
     """A dictionary mapping `(nurse_name, day)` tuples to shift strings.
     """
@@ -40,11 +43,11 @@ class ScheduleState:
     """
     weekend_pairs: List[Tuple[int,int]]
     """A list of tuples of days (Sunday, Monday) indicating weekends."""
-    prefs_by_nurse: Dict[str, Dict[int,int]]
+    prefs_by_nurse: Dict[str, Dict[int, Tuple[int, Any]]]
     """A dictionary mapping each nurse to a dictionary of their preferred
-    shift types.
+    shift types with timestamps.
     """
-    training_by_nurse: Dict[str, Dict[int,int]]
+    training_by_nurse: Dict[str, Dict[int, int]]
     """A dictionary mapping each nurse to a dictionary of their training
     requirements.
     """
@@ -52,6 +55,8 @@ class ScheduleState:
     # model params
     num_days: int
     """The number of days in the scheduling period."""
+    prev_days: int
+    """The number of days in the previous schedule."""
     shift_types: int
     """The number of shift types."""
     shift_durations: List[int]
@@ -100,6 +105,16 @@ class ScheduleState:
     """
     shift_balance: bool
     """A boolean indicating if the shift balance constraint is active."""
+    pref_miss_penalty: int
+    """The penalty for missing preferences."""
+    fairness_gap_penalty: int
+    """The penalty for the fairness gap of preferences met."""
+    fairness_gap_threshold: int
+    """The threshold for penalsing the fairness gap of preferences met."""
+    shift_imbalance_penalty: int
+    """The penalty for the shift distribution imbalance."""
+    shift_imbalance_threshold: int
+    """The threshold for penalsing the shift distribution imbalance."""
 
     # collections to fill
     hard_rules: Dict[str, Any]

@@ -1,7 +1,7 @@
 import pandas as pd
 from typing import Tuple
 from ortools.sat.python import cp_model
-from core.state import ScheduleState
+from src.core.state import ScheduleState
 from .solver import SolverResult, run_phase1, run_phase2
 from .extractor import extract_schedule_and_summary, get_total_prefs_met
 import logging
