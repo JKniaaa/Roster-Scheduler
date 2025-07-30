@@ -1,5 +1,5 @@
 from datetime import date
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Dict
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, model_validator, Field, ConfigDict
@@ -11,6 +11,26 @@ from src.exceptions.custom_errors import *
 import re
 import traceback
 import logging
+
+def toCamel(string: str) -> str:
+    """
+    Converts a string in snake_case format to camelCase format.
+
+    For example, "hello_world" is converted to "helloWorld".
+
+    :param string: The string to convert
+    :return: The converted string
+    """
+    parts = string.split("_")
+    return parts[0] + "".join(p.capitalize() for p in parts[1:])
+
+
+class CamelModel(BaseModel):
+    model_config = ConfigDict(
+        alias_generator=toCamel,
+        populate_by_name=True,
+        extra="allow"
+    )
 
 app = FastAPI()
 
@@ -24,7 +44,7 @@ CUSTOM_ERRORS = {
 }
 
 # Define data models
-class NurseProfile(BaseModel):
+class NurseProfile(CamelModel):
     model_config = ConfigDict(extra="allow")
 
     name: str
@@ -49,7 +69,7 @@ class NurseProfile(BaseModel):
                     break
         return values
 
-class NursePreference(BaseModel):
+class NursePreference(CamelModel):
     model_config = ConfigDict(extra="allow")
 
     nurse: str
@@ -57,26 +77,26 @@ class NursePreference(BaseModel):
     shift: str
     timestamp: Optional[dt.datetime] = None
 
-class NurseTraining(BaseModel):
+class NurseTraining(CamelModel):
     model_config = ConfigDict(extra="allow")
 
     nurse: str
     date: date
     training: str
 
-class PrevSchedule(BaseModel):
+class PrevSchedule(CamelModel):
     model_config = ConfigDict(extra="allow")
     index: str        # <nurse>
     # <date>: <shift> fields will be handled via internal logic
 
-class FixedAssignment(BaseModel):
+class FixedAssignment(CamelModel):
     model_config = ConfigDict(extra="allow")
 
     nurse: str
     date: date
     fixed: str
 
-class ScheduleRequest(BaseModel):
+class ScheduleRequest(CamelModel):
     model_config = ConfigDict(extra="allow")
 
     start_date: date
@@ -141,78 +161,135 @@ def standardize_profile_columns(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-@app.post("/schedule/generate/", response_model=dict)
-async def generate_schedule(
-    profiles: List[NurseProfile],
-    preferences: List[NursePreference],
-    training_shifts: List[NurseTraining],
-    previous_schedule: List[PrevSchedule],
+class ScheduleEntry(CamelModel):
+    index: str
+     # all the "Day Date": "Shift" keys flow through as extras
+
+class SummaryEntry(CamelModel):
+    index: int      # row index
+    nurse: str = Field(..., alias="Nurse")
+    # everything else (AL, MC, Hours_Week1_Real, Prefs_Unmet, etc.) passes through
+
+class ScheduleResponse(CamelModel):
+    schedule: List[ScheduleEntry]
+    summary: List[SummaryEntry]
+    violations: Dict[str, Any]
+    metrics: Dict[str, Any]
+
+class GenerateSchedulePayload(CamelModel):
+    profiles: List[NurseProfile]
+    preferences: List[NursePreference]
+    training_shifts: List[NurseTraining] = Field(default_factory=list)
+    previous_schedule: List[PrevSchedule] = Field(default_factory=list)
     request: ScheduleRequest
+
+@app.post("/schedule/generate/", response_model=ScheduleResponse)
+async def generate_schedule(
+    payload: GenerateSchedulePayload
 ):
     """
-    Generate a schedule based on the given nurse profiles, shift preferences, and other parameters
-    
-    The API endpoint takes the following parameters:
-    
-    - `profiles`: List of `NurseProfile` objects, which contain the following information:
-        - `name`: Name of the nurse
-        - `title`: Title of the nurse (e.g. "Senior Nurse", "Junior Nurse")
-        - `years_experience`: Number of years of experience the nurse has
-    - `preferences`: List of `NursePreference` objects, which contain the following information:
-        - `nurse`: Name of the nurse
-        - `date`: Date of the shift
-        - `shift`: Shift preference (e.g. "AM", "PM", "Night")
-        - `timestamp`: Timestamp of the preference (optional, used for sorting preferences)
-    - `training_shifts`: List of `NurseTraining` objects, which contain the following information:
-        - `nurse`: Name of the nurse
-        - `date`: Date of the training shift
-        - `training`: Shift on training (e.g. "AM", "PM")
-    - `previous_schedule`: List of `PrevSchedule` objects. Each object represents a nurse's past schedule and contains:
-        - `index`: The name of the nurse.
-        - `<Day Date>`: The assigned shift for that day, where the key is a string in the format `"Day YYYY-MM-DD"` 
-          (e.g., `"Mon 2025-07-07"`), and the value is one of the shift types (e.g. "AM", "PM", "Night") or no work labels (e.g. "MC", "REST", "AL", "EL").
-    - `request`: `ScheduleRequest` object, which contains the following information:
-        - `start_date`: Start date of the schedule
-        - `num_days`: Number of days in the schedule
-        - `shift_durations`: List of shift durations in hours
-        - `min_nurses_per_shift`: Minimum number of nurses per shift
-        - `min_seniors_per_shift`: Minimum number of senior nurses per shift
-        - `max_weekly_hours`: Maximum weekly hours for each nurse
-        - `preferred_weekly_hours`: Preferred weekly hours for each nurse
-        - `min_acceptable_weekly_hours`: Minimum acceptable weekly hours for each nurse
-        - `activate_am_cov`: Whether to activate AM coverage constraints
-        - `am_coverage_min_percent`: Minimum percentage of AM shifts that must be covered
-        - `am_coverage_min_hard`: Whether the minimum percentage is a hard constraint
-        - `am_coverage_relax_step`: Relaxation step for the minimum percentage
-        - `am_senior_min_percent`: Minimum percentage of senior nurses that must be assigned to AM shifts
-        - `am_senior_min_hard`: Whether the minimum percentage is a hard constraint
-        - `am_senior_relax_step`: Relaxation step for the minimum percentage
-        - `weekend_rest`: Whether to ensure that each nurse has a weekend rest
-        - `back_to_back_shift`: Whether to prevent back-to-back shifts
-        - `use_sliding_window`: Whether to use a sliding window for shift assignments
-        - `shift_balance`: Whether to balance the number of shifts between nurses
-        - `priority_setting`: Priority setting for the solver (e.g. "Fairness", "Fairness-leaning", "50/50", "Preference-leaning", "Preference"). Only activated when `shift_balance` is `True`.
-        - `fixed_assignments`: List of fixed shift assignments (optional), with the following fields:
-            - `nurse`: Name of the nurse
-            - `date`: Date of the shift
-            - `fixed`: Fixed declaration (e.g. "EL", "MC")
-        
-    The API endpoint returns a JSON object with the following keys:
-    
-    - `schedule`: List of shift assignments, where each assignment is a dictionary with the following keys:
-        - `nurse`: Name of the nurse
-        - `date`: Date of the shift
-        - `shift`: Shift assignment (e.g. "AM", "PM", "Night")
-    - `summary`: List of summary statistics, where each statistic is a dictionary with the following keys:
-        - `metric`: Name of the metric (e.g. "Hours_Week1_Real", "Prefs_Unmet")
-        - `value`: Value of the metric
-    - `violations`: List of constraint violations, where each violation is a dictionary with the following keys:
-        - `constraint`: Name of the constraint (e.g. "Low Hours Nurses", "Low Senior AM Days")
-        - `value`: Value of the constraint
-     - `metrics`: A dictionary containing evaluation metrics. Keys include "Preference Unmet" and "Fairness Gap", with each value representing the corresponding metric score.
+    Generate a schedule based on the given nurse profiles, shift preferences, and other parameters.
 
-    The API endpoint raises an HTTPException with a status code of 400 if the input is invalid and raises an HTTPException with a status code of 422 if no feasible solution is found.
+    Parameters
+    ----------
+    payload : GenerateSchedulePayload
+        The input payload containing:
+        - profiles : List[NurseProfile]
+            Each with:
+            - name (str)
+            - title (str)
+            - yearsExperience (int)
+
+        - preferences : List[NursePreference]
+            Each with:
+            - nurse (str)
+            - date (str, "YYYY-MM-DD")
+            - shift (str)
+            - timestamp (str, ISO 8601)
+
+        - trainingShifts : List[NurseTraining]
+            Each with:
+            - nurse (str)
+            - date (str, "YYYY-MM-DD")
+            - training (str)
+
+        - previousSchedule : List[PrevSchedule]
+            Each with:
+            - index (str)  — nurse identifier
+            - "<Day YYYY‑MM‑DD>" columns for past shifts or leave codes
+
+        - request : ScheduleRequest
+            Scheduling parameters:
+
+            - startDate (str, "YYYY-MM-DD")
+            - numDays (int)
+            - shiftDurations (List[int]) — hours per shift
+            - minNursesPerShift (int)
+            - minSeniorsPerShift (int)
+            - maxWeeklyHours (int)
+            - preferredWeeklyHours (int)
+            - minAcceptableWeeklyHours (int)
+            - prefWeeklyHoursHard (bool)
+            - activateAmCov (bool)
+            - amCoverageMinPercent (int)
+            - amCoverageMinHard (bool)
+            - amCoverageRelaxStep (int)
+            - amSeniorMinPercent (int)
+            - amSeniorMinHard (bool)
+            - amSeniorRelaxStep (int)
+            - weekendRest (bool)
+            - backToBackShift (bool)
+            - useSlidingWindow (bool)
+            - shiftBalance (bool)
+            - prioritySetting (str)  — only active when `shiftBalance` is `True`
+            - fixedAssignments : List[FixedAssignment]
+                Each with:
+                - nurse (str)
+                - date (str, "YYYY-MM-DD")
+                - fixed (str)
+
+    Returns
+    -------
+    ScheduleResponse
+        A JSON object with:
+
+        - schedule : List[Dict[str, str]]
+            Each mapping:
+            - index (str)
+            - "<Day YYYY-MM-DD>" : assigned shift or leave code
+
+        - summary : List[Dict[str, Any]]
+            Each summary row contains:
+            - index (int)
+            - Nurse (str)
+            - counts for AL, MC, EL, Rest, AM, PM, Night, training, Double Shifts
+            - Hours_Week1_Real, Hours_Week1_InclAL, Hours_Week2_Real, Hours_Week2_InclAL (int)
+            - Prefs_Met (int)
+            - Prefs_Unmet (int)
+            - Unmet_Details (str)
+
+        - violations : Dict[str, List[Any]]
+            Keys are constraint names (e.g. "Low Hours Nurses").
+
+        - metrics : Dict[str, Any]
+            - PreferenceMet (int)
+            - PreferenceUnmet (List[str])
+            - FairnessGap (int)
+
+    Raises
+    ------
+    HTTPException
+
+        - 400 Bad Request: invalid input or parsing errors
+        - 422 Unprocessable Entity: no feasible solution
+        - 500 Internal Server Error: unexpected exceptions
     """
+    profiles = payload.profiles
+    preferences = payload.preferences
+    training_shifts = payload.training_shifts
+    previous_schedule = payload.previous_schedule
+    request = payload.request
+
     try:
         # Convert array inputs to raw DataFrame
         raw = pd.DataFrame([p.model_dump() for p in profiles])
@@ -391,14 +468,14 @@ async def generate_schedule(
         )
 
         # Convert DataFrames to JSON-friendly format
-        response = {
+        raw = {
             "schedule": schedule.reset_index().to_dict(orient="records"),
             "summary": summary.reset_index().to_dict(orient="records"),
             "violations": violations,
             "metrics": metrics
         }
         
-        return response
+        return ScheduleResponse(**raw)
         
     except tuple(CUSTOM_ERRORS) as e:
         raise HTTPException(status_code=CUSTOM_ERRORS[type(e)], detail=str(e))

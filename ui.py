@@ -534,7 +534,7 @@ if st.sidebar.button("Generate Schedule", type="primary"):
             st.sidebar.write(f"{i}. [{rec['Source']}] {rec['Nurse']} on {dt}: "
                             f"{rec['Preference']} (at {ts})")
 
-        # 3) store the merged+sorted metadata if you still need it elsewhere
+        # 3) store the merged+sorted metadata if needed elsewhere
         st.session_state["all_prefs_meta"] = all_prefs_sorted
         
         # Training Shifts
