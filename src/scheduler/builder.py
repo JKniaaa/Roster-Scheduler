@@ -37,6 +37,7 @@ def build_schedule_model(profiles_df: pd.DataFrame,
                          preferred_weekly_hours: int = PREFERRED_WEEKLY_HOURS,
                          pref_weekly_hours_hard: bool = False,
                          min_acceptable_weekly_hours: int = MIN_ACCEPTABLE_WEEKLY_HOURS,
+                         min_weekly_rest: int = MIN_WEEKLY_REST,
                          activate_am_cov: bool = False,
                          am_coverage_min_percent: int = AM_COVERAGE_MIN_PERCENT,
                          am_coverage_min_hard: bool = False,
@@ -97,6 +98,7 @@ def build_schedule_model(profiles_df: pd.DataFrame,
         preferred_weekly_hours=preferred_weekly_hours,
         pref_weekly_hours_hard=pref_weekly_hours_hard,
         min_acceptable_weekly_hours=min_acceptable_weekly_hours,
+        min_weekly_rest=min_weekly_rest,
         activate_am_cov=activate_am_cov,
         am_coverage_min_percent=am_coverage_min_percent,
         am_coverage_min_hard=am_coverage_min_hard,
@@ -131,6 +133,7 @@ def build_schedule_model(profiles_df: pd.DataFrame,
     cm.add_rule(shifts_per_day_rule)
     cm.add_rule(weekly_working_hours_rules)
     cm.add_rule(min_staffing_per_shift_rule)
+    cm.add_rule(min_rest_per_week_rule)
     cm.add_rule(weekend_rest_rule)
     cm.add_rule(no_back_to_back_shift_rule)
     cm.add_rule(am_coverage_rule)

@@ -108,6 +108,7 @@ class ScheduleRequest(CamelModel):
     preferred_weekly_hours: int = Field(default=PREFERRED_WEEKLY_HOURS)
     pref_weekly_hours_hard: bool = False
     min_acceptable_weekly_hours: int = Field(default=MIN_ACCEPTABLE_WEEKLY_HOURS)
+    min_weekly_rest: int = Field(default=MIN_WEEKLY_REST)
     activate_am_cov: bool = True
     am_coverage_min_percent: int = Field(default=AM_COVERAGE_MIN_PERCENT)
     am_coverage_min_hard: bool = False
@@ -237,6 +238,7 @@ async def generate_schedule(
             - amSeniorMinPercent (int)
             - amSeniorMinHard (bool)
             - amSeniorRelaxStep (int)
+            - minWeeklyRest (int)
             - weekendRest (bool)
             - backToBackShift (bool)
             - useSlidingWindow (bool)
@@ -452,6 +454,7 @@ async def generate_schedule(
             preferred_weekly_hours=request.preferred_weekly_hours,
             pref_weekly_hours_hard=request.pref_weekly_hours_hard,
             min_acceptable_weekly_hours=request.min_acceptable_weekly_hours,
+            min_weekly_rest=request.min_weekly_rest,
             activate_am_cov=request.activate_am_cov,
             am_coverage_min_percent=request.am_coverage_min_percent,
             am_coverage_min_hard=request.am_coverage_min_hard,

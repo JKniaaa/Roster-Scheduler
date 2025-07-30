@@ -95,6 +95,8 @@ class ScheduleState:
     constraint."""
     am_senior_relax_step: int
     """The step size for relaxing the morning coverage constraint."""
+    min_weekly_rest: int
+    """The minimum rest days per week."""
     weekend_rest: bool
     """A boolean indicating if weekend rest is enforced."""
     back_to_back_shift: bool

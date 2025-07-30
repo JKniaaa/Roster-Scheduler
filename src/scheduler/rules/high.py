@@ -153,6 +153,22 @@ def min_staffing_per_shift_rule(model, state: ScheduleState):
             model.Add(sum(state.work[n, d, s] for n in state.senior_names) >= state.min_seniors_per_shift).OnlyEnforceIf(state.hard_rules["Min seniors"].flag)
 
 
+def min_rest_per_week_rule(model, state: ScheduleState):
+    num_full_weeks = state.num_days // DAYS_PER_WEEK
+
+    for n in state.nurse_names:
+        for w in range(num_full_weeks):
+            days = range(w * DAYS_PER_WEEK, (w + 1) * DAYS_PER_WEEK)
+            rest_days = []
+            for d in days:
+                rest = model.NewBoolVar(f"rest_{n}_{d}")
+                model.Add(sum(state.work[n, d, s] for s in range(state.shift_types)) == 0).OnlyEnforceIf(rest)
+                model.Add(sum(state.work[n, d, s] for s in range(state.shift_types)) >= 1).OnlyEnforceIf(rest.Not())
+                rest_days.append(rest)
+
+            model.Add(sum(rest_days) >= state.min_weekly_rest).OnlyEnforceIf(state.hard_rules["Min weekly rest"].flag)
+
+
 def weekend_rest_rule(model, state: ScheduleState):
     """ Ensure that nurses who work on a weekend must rest on the corresponding days the following weekend only if state.weekend_rest is True. """
     if state.weekend_rest:

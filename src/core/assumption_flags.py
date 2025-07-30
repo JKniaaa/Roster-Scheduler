@@ -65,6 +65,10 @@ def define_hard_rules(model: cp_model.CpModel) -> dict[str, HardRule]:
             model.NewBoolVar("assume_am_snr_majority"),
             "Number of seniors on AM shift cannot always be more than juniors.\n"
         ),
+        "Min weekly rest": HardRule(
+            model.NewBoolVar("assume_min_weekly_rest"),
+            "Minimum weekly rest cannot be met.\n"
+        ),
         "Weekend rest": HardRule(
             model.NewBoolVar("assume_weekend_rest"),
             "Alternating weekend rest cannot be guaranteed.\n"
