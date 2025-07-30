@@ -154,6 +154,7 @@ def min_staffing_per_shift_rule(model, state: ScheduleState):
 
 
 def min_rest_per_week_rule(model, state: ScheduleState):
+    """ Ensure that nurses have a minimum number of rest days per week. """
     num_full_weeks = state.num_days // DAYS_PER_WEEK
 
     for n in state.nurse_names:
