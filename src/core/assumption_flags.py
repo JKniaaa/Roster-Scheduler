@@ -25,6 +25,7 @@ def define_hard_rules(model: cp_model.CpModel) -> dict[str, HardRule]:
     - AM cov majority: Number of nurses on AM shift is more than PM and Night respectively
     - AM snr min: Minimum AM senior coverage
     - AM snr majority: Number of seniors on AM shift is more than juniors
+    - Min weekly rest: Minimum number of rest days per week
     - Weekend rest: Alternating weekend rest
     - No b2b: Back-to-back shifts cannot be fully prevented across days or within the same day
     """

@@ -82,8 +82,9 @@ roster-scheduler/
 │
 ├── .venv/
 ├── .env
+├── api/               → FastAPI app entrypoint, route handlers and API docs
 ├── config/            → Constants and path configuration
-├── data/              → Templates for input files
+├── data/              → Templates for input files and API test cases
 ├── jupyter/           → Development notebooks
 ├── legacy/            → Deprecated modules (e.g., old scheduler logic)
 ├── src/               → Main Python source code
