@@ -16,9 +16,6 @@ def compute_label_offset(label: Any, date_start: dt_date) -> int:
     return (d - date_start).days
 
 
-from datetime import datetime, date as dt_date
-import pandas as pd
-
 def normalise_date(input_date):
     """
     Convert input to a datetime.date object.

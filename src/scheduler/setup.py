@@ -98,7 +98,10 @@ def setup_model(profiles_df, preferences_df, training_shifts_df, prev_schedule_d
     else:
         last_date = normalise_date(max(prev_schedule_df.columns))
         if last_date >= date_start:
-            raise InvalidPreviousScheduleError("Previous schedule end date must be before start date.")
+            raise InvalidPreviousScheduleError(
+                f"Previous schedule end date ({last_date}) "
+                f"must be before current schedule start date ({date_start})."
+            )
         earliest_date = normalise_date(min(prev_schedule_df.columns))
         prev_days = (date_start - earliest_date).days
 

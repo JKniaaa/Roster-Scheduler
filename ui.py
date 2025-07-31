@@ -238,6 +238,11 @@ if pref_weekly_hours_hard:
     st.caption("Preferred weekly hours would be a hard minimum.")
     min_acceptable_weekly_hours = preferred_weekly_hours    # Set to preferred weekly  hours if hard constraint is enabled
 
+min_weekly_rest = st.sidebar.number_input(
+    "Min weekly rest", min_value=1, value=MIN_WEEKLY_REST,
+    help="The minimum number of days a nurse must rest per week.",
+    key="min_weekly_rest"
+)
 with st.sidebar.expander("AM Coverage Constraint", expanded=True):
     activate_am_cov = st.checkbox(
         "Activate AM Coverage",
@@ -429,6 +434,7 @@ for key, default in {
     "preferred_weekly_hours": preferred_weekly_hours,
     "pref_weekly_hours_hard": pref_weekly_hours_hard,
     "min_acceptable_weekly_hours": min_acceptable_weekly_hours,
+    "min_weekly_rest": min_weekly_rest,
     "activate_am_cov": activate_am_cov,
     "am_coverage_min_percent": am_coverage_min_percent,
     "am_coverage_min_hard": am_coverage_min_hard,
@@ -576,6 +582,7 @@ if st.sidebar.button("Generate Schedule", type="primary"):
             max_weekly_hours=st.session_state.max_weekly_hours,
             preferred_weekly_hours=st.session_state.preferred_weekly_hours,
             min_acceptable_weekly_hours=st.session_state.min_acceptable_weekly_hours,
+            min_weekly_rest=st.session_state.min_weekly_rest,
             pref_weekly_hours_hard=st.session_state.pref_weekly_hours_hard,
             activate_am_cov=st.session_state.activate_am_cov,
             am_coverage_min_percent=st.session_state.am_coverage_min_percent,
@@ -719,6 +726,7 @@ if st.session_state.sched_df is not None:
                         st.session_state.preferred_weekly_hours,
                         st.session_state.pref_weekly_hours_hard,
                         st.session_state.min_acceptable_weekly_hours,
+                        st.session_state.min_weekly_rest,
                         st.session_state.activate_am_cov,
                         st.session_state.am_coverage_min_percent,
                         st.session_state.am_coverage_min_hard,
